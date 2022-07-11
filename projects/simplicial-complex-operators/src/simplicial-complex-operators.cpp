@@ -56,12 +56,24 @@ void SimplicialComplexOperators::assignElementIndices() {
  * Returns: The sparse vertex-edge adjacency matrix which gets stored in the global variable A0.
  */
 SparseMatrix<size_t> SimplicialComplexOperators::buildVertexEdgeAdjacencyMatrix() const {
+    auto rows = mesh->nEdges();
+    auto columns = mesh->nVertices();
 
-    // TODO
-    // Note: You can build an Eigen sparse matrix from triplets, then return it as a Geometry Central SparseMatrix.
-    // See <https://eigen.tuxfamily.org/dox/group__TutorialSparse.html> for documentation.
+    std::vector<Eigen::Triplet<size_t>> triplets;
+    // Each row has 2 non-zero entries, because each edge is adjacent to 2 vertices.
+    triplets.reserve(2 * rows);
 
-    return identityMatrix<size_t>(1); // placeholder
+    for (Edge e : mesh->edges()) {
+        auto i = e.getIndex();
+        Vertex v1 = e.firstVertex();
+        Vertex v2 = e.secondVertex();
+        triplets.push_back(Eigen::Triplet<size_t>(i, v1.getIndex(), 1));
+        triplets.push_back(Eigen::Triplet<size_t>(i, v2.getIndex(), 1));
+    }
+
+    SparseMatrix<size_t> matrix(rows, columns);
+    matrix.setFromTriplets(triplets.begin(), triplets.end());
+    return matrix;
 }
 
 /*
@@ -71,9 +83,23 @@ SparseMatrix<size_t> SimplicialComplexOperators::buildVertexEdgeAdjacencyMatrix(
  * Returns: The sparse face-edge adjacency matrix which gets stored in the global variable A1.
  */
 SparseMatrix<size_t> SimplicialComplexOperators::buildFaceEdgeAdjacencyMatrix() const {
+    auto rows = mesh->nFaces();
+    auto columns = mesh->nEdges();
 
-    // TODO
-    return identityMatrix<size_t>(1); // placeholder
+    std::vector<Eigen::Triplet<size_t>> triplets;
+    triplets.reserve(3 * rows);
+
+    for (Face f : mesh->faces()) {
+        auto i = f.getIndex();
+        for (Edge e : f.adjacentEdges()) {
+            auto j = e.getIndex();
+            triplets.push_back(Eigen::Triplet<size_t>(i, j, 1));
+        }
+    }
+
+    SparseMatrix<size_t> matrix(rows, columns);
+    matrix.setFromTriplets(triplets.begin(), triplets.end());
+    return matrix;
 }
 
 /*
@@ -83,9 +109,11 @@ SparseMatrix<size_t> SimplicialComplexOperators::buildFaceEdgeAdjacencyMatrix() 
  * Returns: Vector of length |V|, where |V| = # of vertices in the mesh.
  */
 Vector<size_t> SimplicialComplexOperators::buildVertexVector(const MeshSubset& subset) const {
-
-    // TODO
-    return Vector<size_t>::Zero(1);
+    Vector<size_t> result = Vector<size_t>::Zero(mesh->nVertices());
+    for (size_t i : subset.vertices) {
+        result[i] = 1;
+    }
+    return result;
 }
 
 /*
@@ -95,9 +123,11 @@ Vector<size_t> SimplicialComplexOperators::buildVertexVector(const MeshSubset& s
  * Returns: Vector of length |E|, where |E| = # of edges in mesh.
  */
 Vector<size_t> SimplicialComplexOperators::buildEdgeVector(const MeshSubset& subset) const {
-
-    // TODO
-    return Vector<size_t>::Zero(1);
+    Vector<size_t> result = Vector<size_t>::Zero(mesh->nEdges());
+    for (size_t i : subset.edges) {
+        result[i] = 1;
+    }
+    return result;
 }
 
 /*
@@ -107,9 +137,11 @@ Vector<size_t> SimplicialComplexOperators::buildEdgeVector(const MeshSubset& sub
  * Returns: Vector of length |F|, where |F| = # of faces in mesh.
  */
 Vector<size_t> SimplicialComplexOperators::buildFaceVector(const MeshSubset& subset) const {
-
-    // TODO
-    return Vector<size_t>::Zero(1);
+    Vector<size_t> result = Vector<size_t>::Zero(mesh->nFaces());
+    for (size_t i : subset.faces) {
+        result[i] = 1;
+    }
+    return result;
 }
 
 /*
@@ -119,9 +151,31 @@ Vector<size_t> SimplicialComplexOperators::buildFaceVector(const MeshSubset& sub
  * Returns: The star of the given subset.
  */
 MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
+    // The star always includes the original subset.
+    MeshSubset result = subset;
 
-    // TODO
-    return subset; // placeholder
+    Vector<size_t> vertices = buildVertexVector(subset);
+    Vector<size_t> connectedEdges = A0 * vertices;
+
+    for (size_t i = 0; i < connectedEdges.size(); i++) {
+        if (connectedEdges[i] != 0) {
+            result.addEdge(i);
+        }
+    }
+
+    // Add edges from the original subset, so that we get the faces connected
+    // to either a vertex (via one of the edges already in connectedEdges) or
+    // an edge in the original subset.
+    connectedEdges += buildEdgeVector(subset);
+    Vector<size_t> connectedFaces = A1 * connectedEdges;
+
+    for (size_t i = 0; i < connectedFaces.size(); i++) {
+        if (connectedFaces[i] != 0) {
+            result.addFace(i);
+        }
+    }
+
+    return result;
 }
 
 
@@ -132,9 +186,28 @@ MeshSubset SimplicialComplexOperators::star(const MeshSubset& subset) const {
  * Returns: The closure of the given subset.
  */
 MeshSubset SimplicialComplexOperators::closure(const MeshSubset& subset) const {
+    // The closure always includes the original subset as well.
+    MeshSubset result = subset;
 
-    // TODO
-    return subset; // placeholder
+    Vector<size_t> faces = buildFaceVector(subset);
+    Vector<size_t> edges = A1.transpose() * faces;
+
+    for (size_t i = 0; i < edges.size(); i++) {
+        if (edges[i] != 0) {
+            result.addEdge(i);
+        }
+    }
+
+    edges += buildEdgeVector(subset);
+    Vector<size_t> vertices = A0.transpose() * edges;
+
+    for (size_t i = 0; i < vertices.size(); i++) {
+        if (vertices[i] != 0) {
+            result.addVertex(i);
+        }
+    }
+
+    return result;
 }
 
 /*
@@ -144,9 +217,9 @@ MeshSubset SimplicialComplexOperators::closure(const MeshSubset& subset) const {
  * Returns: The link of the given subset.
  */
 MeshSubset SimplicialComplexOperators::link(const MeshSubset& subset) const {
-
-    // TODO
-    return subset; // placeholder
+    MeshSubset result = closure(star(subset));
+    result.deleteSubset(star(closure(subset)));
+    return result;
 }
 
 /*
@@ -156,9 +229,8 @@ MeshSubset SimplicialComplexOperators::link(const MeshSubset& subset) const {
  * Returns: True if given subset is a simplicial complex, false otherwise.
  */
 bool SimplicialComplexOperators::isComplex(const MeshSubset& subset) const {
-
-    // TODO
-    return false; // placeholder
+    MeshSubset cl = closure(subset);
+    return subset.equals(cl);
 }
 
 /*
@@ -169,9 +241,45 @@ bool SimplicialComplexOperators::isComplex(const MeshSubset& subset) const {
  * Returns: int representing the degree of the given complex (-1 if not pure)
  */
 int SimplicialComplexOperators::isPureComplex(const MeshSubset& subset) const {
+    // We can skip the computation for the sets below, if there are no
+    // corresponding simplices (in which case the empty set is correct).
+    bool hasFaces = !subset.faces.empty();
+    bool hasEdges = !subset.edges.empty();
 
-    // TODO
-    return -1; // placeholder
+    std::set<size_t> faceEdges;
+    if (hasFaces) {
+        Vector<size_t> faces = buildFaceVector(subset);
+        Vector<size_t> edges = A1.transpose() * faces;
+        for (size_t i = 0; i < edges.size(); i++) {
+            if (edges[i] != 0) {
+                faceEdges.insert(i);
+            }
+        }
+    }
+
+    std::set<size_t> edgeVertices;
+    if (hasEdges) {
+        Vector<size_t> edges = buildEdgeVector(subset);
+        Vector<size_t> vertices = A0.transpose() * edges;
+        for (size_t i = 0; i < vertices.size(); i++) {
+            if (vertices[i] != 0) {
+                edgeVertices.insert(i);
+            }
+        }
+    }
+
+    if (hasFaces) {
+        // All edges in the subset must belong to a face and all vertices must belong to an edge (and transitively to a face).
+        return (subset.edges == faceEdges && subset.vertices == edgeVertices) ? 2 : -1;
+    } else if (hasEdges) {
+        // All vertices must belong to an edge.
+        return (subset.vertices == edgeVertices) ? 1 : -1;
+    } else {
+        // A set of vertices always is a pure 0-complex.
+        // However, if the subset is completely empty, it is no longer a 0-complex,
+        // which requires at least one simplex of degree 0 (i.e. at least one vertex).
+        return (!subset.vertices.empty()) ? 0 : -1;
+    }
 }
 
 /*
@@ -181,7 +289,72 @@ int SimplicialComplexOperators::isPureComplex(const MeshSubset& subset) const {
  * Returns: The boundary of the given subset.
  */
 MeshSubset SimplicialComplexOperators::boundary(const MeshSubset& subset) const {
+    int degree = isPureComplex(subset);
 
-    // TODO
-    return subset; // placeholder
+    // The boundary is defined as the closure of the set of all simplices that
+    // are proper faces of exactly one simplex of the subset. In a pure
+    // k-complex, this set will contain only (k-1)-simplices, so we switch on
+    // the degree of the given complex.
+
+    switch (degree) {
+        case 0: {
+            // A 0-complex does not have a boundary.
+            return MeshSubset{};
+        }
+
+        case 1: {
+            // For a 1-complex we have to find the vertices that are adjacent
+            // to only one edge from the subset. The vertices vector below
+            // will contain the number of adjacent edges. We do not have to
+            // anything to get the closure, as the closure of a vertex is
+            // always itself.
+            MeshSubset result;
+
+            Vector<size_t> edges = buildEdgeVector(subset);
+            Vector<size_t> vertices = A0.transpose() * edges;
+
+            for (size_t i = 0; i < vertices.size(); i++) {
+                if (vertices[i] == 1) {
+                    result.addVertex(i);
+                }
+            }
+
+            return result;
+        }
+
+        case 2: {
+            // The idea for 2-complexes is the same as for 1-complexes, except
+            // now we are looking for edges that are adjacent to exactly one
+            // triangle.
+            MeshSubset result;
+
+            Vector<size_t> faces = buildFaceVector(subset);
+            Vector<size_t> edges = A1.transpose() * faces;
+
+            for (size_t i = 0; i < edges.size(); i++) {
+                if (edges[i] == 1) {
+                    result.addEdge(i);
+                } else {
+                    edges[i] = 0;
+                }
+            }
+
+            // Now, we also have to find the vertices corresponding to these
+            // edges to get the closure of the set.
+            Vector<size_t> vertices = A0.transpose() * edges;
+            for (size_t i = 0; i < vertices.size(); i++) {
+                if (vertices[i] != 0) {
+                    result.addVertex(i);
+                }
+            }
+
+            return result;
+
+        }
+
+        default:
+            // The boundary is not defined if the subset is not a pure simplicial complex.
+            // We return the original subset, so as not to clear the user's selection.
+            return subset;
+    }
 }
