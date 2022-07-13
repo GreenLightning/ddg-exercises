@@ -80,8 +80,16 @@ double VertexPositionGeometry::totalArea() const {
  */
 double VertexPositionGeometry::cotan(Halfedge he) const {
 
-    // TODO
-    return 0; // placeholder
+    // Assumes triangle mesh, otherwise the angle will not be opposite to he.
+    Halfedge next = he.next();
+    Halfedge prev = next.next();
+
+    Vector3 u = -halfedgeVector(next);
+    Vector3 v = halfedgeVector(prev);
+
+    // Compute cotangent as cos/sin based the formulas for the dot and cross
+    // product. The lengths of the vectors cancel out.
+    return dot(u, v) / cross(u, v).norm();
 }
 
 /*
@@ -91,9 +99,23 @@ double VertexPositionGeometry::cotan(Halfedge he) const {
  * Returns: The barycentric dual area of the given vertex.
  */
 double VertexPositionGeometry::barycentricDualArea(Vertex v) const {
+    double area = 0.0;
+    for (Face f : v.adjacentFaces()) {
+        if (f.isTriangle()) {
+            Halfedge ha = f.halfedge();
+            Halfedge hb = ha.next();
 
-    // TODO
-    return 0; // placeholder
+            Vector3 a = halfedgeVector(ha);
+            Vector3 b = halfedgeVector(hb);
+
+            area += cross(a, b).norm();
+        }
+    }
+
+    // Divide by 2 to get the area of the triangles from the cross product
+    // (computes area of parallelogram) and by 3 to divide area between the
+    // vertices of each triangle.
+    return area / 6.0;
 }
 
 /*
